@@ -33,7 +33,7 @@ export function VideoPlayer({ exercise, dark = false }) {
     const start = parseTimestamp(exercise.timestamp);
     const params = new URLSearchParams({
       autoplay: 1, loop: 1, playlist: videoId, mute: 1,
-      controls: 0, modestbranding: 1, rel: 0,
+      controls: 0, modestbranding: 1, rel: 0, playsinline: 1,
       ...(start ? { start } : {}),
     });
     return (
