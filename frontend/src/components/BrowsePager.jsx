@@ -7,7 +7,7 @@ import { SessionsView } from './SessionsView.jsx';
 // ─── Exercise card ──────────────────────────────────────
 function ExerciseCard({ exercise, idx }) {
   return (
-    <div style={{ position: 'relative', width: '100%', height: '100%', padding: '88px 18px 108px', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ position: 'relative', width: '100%', height: '100%', padding: 'calc(max(16px, env(safe-area-inset-top)) + 46px) 18px calc(100px + env(safe-area-inset-bottom))', display: 'flex', flexDirection: 'column' }}>
       <div style={{ flex: 1, borderRadius: 22, overflow: 'hidden', border: '1px solid var(--line)', position: 'relative' }}>
         <VideoPlayer exercise={exercise} />
       </div>

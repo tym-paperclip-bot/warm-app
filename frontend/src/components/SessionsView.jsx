@@ -14,87 +14,56 @@ const solidBtn = {
   display: 'inline-flex', alignItems: 'center', gap: 6,
 };
 
-// ─── Swipeable session row ──────────────────────────────
-function SwipeableSessionRow({ session, onStart, onEdit, onDelete }) {
-  const [dx, setDx] = React.useState(0);
-  const [open, setOpen] = React.useState(false);
-  const [confirming, setConfirming] = React.useState(false);
-  const dragRef = React.useRef({ active: false, startX: 0, startY: 0, axis: null, baseDx: 0 });
-  const ACTION_W = 152;
-  const OPEN_THRESHOLD = 50;
-  const DELETE_THRESHOLD = 230;
+// ─── Session row with long-press actions ────────────────
+function SessionRow({ session, onStart, onEdit, onDelete }) {
+  const [active, setActive] = React.useState(false);
+  const timerRef = React.useRef(null);
+  const pressRef = React.useRef({ fired: false, x: 0, y: 0 });
 
-  const close = () => { setOpen(false); setDx(0); setConfirming(false); };
+  const cancelTimer = () => clearTimeout(timerRef.current);
 
   const onPointerDown = e => {
-    if (e.target.closest('button, [data-no-drag]')) return;
-    dragRef.current = { active: true, startX: e.clientX, startY: e.clientY, axis: null, baseDx: open ? ACTION_W : 0 };
+    if (e.target.closest('button')) return;
+    pressRef.current = { fired: false, x: e.clientX, y: e.clientY };
+    timerRef.current = setTimeout(() => {
+      pressRef.current.fired = true;
+      setActive(true);
+    }, 450);
   };
   const onPointerMove = e => {
-    const d = dragRef.current;
-    if (!d.active) return;
-    const ddx = e.clientX - d.startX;
-    const ddy = e.clientY - d.startY;
-    if (!d.axis) {
-      if (Math.abs(ddx) > 8 && Math.abs(ddx) > Math.abs(ddy) * 1.2) { d.axis = 'x'; }
-      else if (Math.abs(ddy) > 8) { d.axis = 'y'; d.active = false; return; }
-    }
-    if (d.axis === 'x') {
-      const raw = d.baseDx + ddx;
-      const clamped = Math.max(0, Math.min(raw, DELETE_THRESHOLD + 60));
-      setDx(clamped);
-      setConfirming(clamped > DELETE_THRESHOLD);
-    }
+    const p = pressRef.current;
+    if (Math.abs(e.clientX - p.x) > 8 || Math.abs(e.clientY - p.y) > 8) cancelTimer();
   };
-  const onPointerUp = () => {
-    const d = dragRef.current;
-    if (d.active && d.axis === 'x') {
-      if (dx > DELETE_THRESHOLD) {
-        setDx(DELETE_THRESHOLD + 80);
-        setTimeout(() => onDelete(), 180);
-      } else if (dx > OPEN_THRESHOLD) {
-        setOpen(true); setDx(ACTION_W); setConfirming(false);
-      } else {
-        close();
-      }
-    }
-    dragRef.current = { active: false, startX: 0, startY: 0, axis: null, baseDx: 0 };
+  const onClick = () => {
+    if (pressRef.current.fired) return;
+    if (active) { setActive(false); return; }
+    onStart();
   };
 
   return (
     <div
-      className="wu-session-swipe"
+      className={'wu-row wu-session-row' + (active ? ' wu-session-row--active' : '')}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerCancel={onPointerUp}
+      onPointerUp={cancelTimer}
+      onPointerCancel={cancelTimer}
+      onClick={onClick}
     >
-      <div className={'wu-session-actions' + (confirming ? ' confirming' : '')}>
-        <button className="wu-session-action edit" data-no-swipe="true"
-          onClick={e => { e.stopPropagation(); onEdit(); close(); }}>
-          <Icon.Edit s={18} />
-          <span>Edit</span>
-        </button>
-        <button className="wu-session-action delete" data-no-swipe="true"
-          onClick={e => { e.stopPropagation(); onDelete(); }}>
-          <Icon.Trash s={18} c="#fff" />
-          <span>{confirming ? 'Release' : 'Delete'}</span>
-        </button>
+      <div>
+        <div className="t1">{session.name}</div>
+        <div className="t2">{session.exerciseIds.length} exercises · {session.created_at}</div>
       </div>
-      <div
-        className="wu-row wu-session-row"
-        style={{ transform: `translateX(${dx}px)`, transition: dragRef.current.active ? 'none' : 'transform 0.22s ease' }}
-        onClick={() => { if (open) { close(); return; } onStart(); }}
-      >
-        <div>
-          <div className="t1">{session.name}</div>
-          <div className="t2">{session.exerciseIds.length} exercises · {session.created_at}</div>
+      {active ? (
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button style={ghostBtn} onClick={e => { e.stopPropagation(); setActive(false); onEdit(); }}>Edit</button>
+          <button style={{ ...ghostBtn, borderColor: 'var(--accent)', color: 'var(--accent)' }}
+            onClick={e => { e.stopPropagation(); setActive(false); onDelete(); }}>Delete</button>
         </div>
-        <button style={solidBtn} data-no-drag="true"
-          onClick={e => { e.stopPropagation(); onStart(); }}>
+      ) : (
+        <button style={solidBtn} onClick={e => { e.stopPropagation(); onStart(); }}>
           <Icon.Play s={12} c="#fff" /> Start
         </button>
-      </div>
+      )}
     </div>
   );
 }
@@ -126,16 +95,16 @@ function EditSessionSheet({ open, state, dispatch }) {
   const onGripDown = (e, idx) => {
     e.preventDefault();
     e.stopPropagation();
-    e.currentTarget.setPointerCapture(e.pointerId);
     const itemEl = e.currentTarget.closest('.wu-edit-item');
-    const h = (itemEl?.getBoundingClientRect().height ?? 60) + 6; // height + gap
+    const h = (itemEl?.getBoundingClientRect().height ?? 60) + 6;
     dragRef.current = { active: true, idx, startY: e.clientY, itemH: h };
     setDraggingIdx(idx);
   };
 
-  const onGripMove = (e) => {
+  const onDragMove = (e) => {
     const d = dragRef.current;
     if (!d.active) return;
+    e.preventDefault();
     const steps = Math.round((e.clientY - d.startY) / d.itemH);
     if (steps === 0) return;
     const newIdx = Math.max(0, Math.min(exercises.length - 1, d.idx + steps));
@@ -151,7 +120,7 @@ function EditSessionSheet({ open, state, dispatch }) {
     setDraggingIdx(newIdx);
   };
 
-  const onGripUp = () => {
+  const onDragUp = () => {
     dragRef.current.active = false;
     setDraggingIdx(null);
   };
@@ -177,7 +146,12 @@ function EditSessionSheet({ open, state, dispatch }) {
   return (
     <>
       <div className={'wu-sheet-backdrop' + (open ? ' open' : '')} onClick={handleDone} />
-      <div className={'wu-sheet tall' + (open ? ' open' : '')}>
+      <div
+        className={'wu-sheet tall' + (open ? ' open' : '')}
+        onPointerMove={onDragMove}
+        onPointerUp={onDragUp}
+        onPointerCancel={onDragUp}
+      >
         <div className="wu-sheet-grab" />
         <div className="wu-eyebrow" style={{ marginBottom: 4 }}>Edit session</div>
 
@@ -199,9 +173,6 @@ function EditSessionSheet({ open, state, dispatch }) {
               <div
                 className="wu-edit-item-grip"
                 onPointerDown={e => onGripDown(e, i)}
-                onPointerMove={onGripMove}
-                onPointerUp={onGripUp}
-                onPointerCancel={onGripUp}
               >
                 <Icon.Grip s={14} c="var(--mute)" />
                 <span className="wu-mono" style={{ fontSize: 10, color: 'var(--mute)', letterSpacing: '0.1em' }}>
@@ -263,7 +234,7 @@ export function SessionsView({ state, dispatch, inPager }) {
 
   return (
     <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}>
-      <div style={{ padding: '64px 22px 22px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+      <div style={{ padding: 'max(20px, env(safe-area-inset-top)) 22px 22px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
           <div className="wu-eyebrow" style={{ marginBottom: 6 }}>Library</div>
           <div className="wu-display" style={{ fontSize: 44 }}>Sessions</div>
@@ -271,7 +242,7 @@ export function SessionsView({ state, dispatch, inPager }) {
             {state.sessions.length} saved{state.buildingSession.length ? ` · ${state.buildingSession.length} in progress` : ''}
           </div>
           <div className="wu-mono" style={{ fontSize: 9, color: 'var(--mute-2)', textTransform: 'uppercase', letterSpacing: '0.14em', marginTop: 6 }}>
-            Swipe row right for edit · delete
+            Hold a session to edit or delete
           </div>
         </div>
         <button onClick={() => dispatch({ type: 'goto', view: 'settings' })} data-no-swipe="true" style={{
@@ -299,7 +270,7 @@ export function SessionsView({ state, dispatch, inPager }) {
         )}
 
         {state.sessions.map(s => (
-          <SwipeableSessionRow
+          <SessionRow
             key={s.id}
             session={s}
             onStart={() => dispatch({ type: 'startSession', sessionId: s.id })}
