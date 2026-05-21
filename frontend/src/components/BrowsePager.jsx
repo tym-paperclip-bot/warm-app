@@ -61,8 +61,7 @@ function BrowseBottomBar({ onSave, onLongPress, savedToCurrent, savedToAny }) {
 }
 
 // ─── Browse view (middle pager page) ───────────────────
-function BrowseView({ state, dispatch }) {
-  const scrollRef = React.useRef(null);
+function BrowseView({ state, dispatch, scrollRef }) {
   const exercises = state.exercises;
 
   React.useEffect(() => {
@@ -78,7 +77,7 @@ function BrowseView({ state, dispatch }) {
       el.removeEventListener('scroll', onScroll);
       el.removeEventListener('scrollend', onScroll);
     };
-  }, [dispatch]);
+  }, [dispatch, scrollRef]);
 
   const currentEx = exercises[state.browseIdx] || exercises[0] || null;
 
@@ -124,6 +123,7 @@ function BrowseView({ state, dispatch }) {
 // ─── Horizontal pager ───────────────────────────────────
 export function BrowsePager({ state, dispatch }) {
   const containerRef = React.useRef(null);
+  const scrollRef = React.useRef(null);
   const drag = React.useRef({ active: false, startX: 0, startY: 0, axis: null, width: 0, dx: 0 });
   const [dragX, setDragX] = React.useState(0);
   const [dragging, setDragging] = React.useState(false);
@@ -131,7 +131,11 @@ export function BrowsePager({ state, dispatch }) {
   const pageIdx = state.pagerIdx ?? 1;
   const setPageIdx = idx => dispatch({ type: 'pagerIdx', idx });
 
-  const currentEx = state.exercises[state.browseIdx] || state.exercises[0] || null;
+  // Read scroll position directly from the DOM — no event lag
+  const browseIdx = scrollRef.current
+    ? Math.round(scrollRef.current.scrollTop / Math.max(scrollRef.current.clientHeight, 1))
+    : (state.browseIdx || 0);
+  const currentEx = state.exercises[browseIdx] || state.exercises[0] || null;
 
   const onPointerDown = e => {
     if (e.target.closest('[data-no-swipe], input, button, iframe')) return;
@@ -190,7 +194,7 @@ export function BrowsePager({ state, dispatch }) {
           <SessionsView state={state} dispatch={dispatch} inPager />
         </div>
         <div className="wu-pager-page">
-          <BrowseView state={state} dispatch={dispatch} />
+          <BrowseView state={state} dispatch={dispatch} scrollRef={scrollRef} />
         </div>
         <div className="wu-pager-page">
           <InfoPanel exercise={currentEx} />
