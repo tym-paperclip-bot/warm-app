@@ -56,6 +56,12 @@ export default function App() {
           </>
         )}
       </div>
+      <div style={{
+        position: 'absolute', bottom: 'calc(4px + env(safe-area-inset-bottom))',
+        left: 0, right: 0, textAlign: 'center',
+        fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '0.12em',
+        color: 'rgba(0,0,0,0.18)', pointerEvents: 'none', userSelect: 'none',
+      }}>© Designed by TK</div>
     </div>
   );
 }
