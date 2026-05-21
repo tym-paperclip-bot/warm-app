@@ -70,11 +70,15 @@ function BrowseView({ state, dispatch }) {
     if (!el) return;
     const onScroll = () => {
       const idx = Math.round(el.scrollTop / el.clientHeight);
-      if (idx !== state.browseIdx) dispatch({ type: 'browseIdx', idx });
+      dispatch({ type: 'browseIdx', idx });
     };
     el.addEventListener('scroll', onScroll, { passive: true });
-    return () => el.removeEventListener('scroll', onScroll);
-  }, [state.browseIdx, dispatch]);
+    el.addEventListener('scrollend', onScroll, { passive: true });
+    return () => {
+      el.removeEventListener('scroll', onScroll);
+      el.removeEventListener('scrollend', onScroll);
+    };
+  }, [dispatch]);
 
   const currentEx = exercises[state.browseIdx] || exercises[0] || null;
 

@@ -18,6 +18,7 @@ export function appReducer(state, action) {
     case 'pagerIdx':
       return { ...state, pagerIdx: action.idx };
     case 'browseIdx':
+      if (state.browseIdx === action.idx) return state;
       return { ...state, browseIdx: action.idx };
     case 'playerIdx':
       return { ...state, playerIdx: action.idx };
