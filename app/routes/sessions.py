@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.auth import require_auth
 from app.database import get_db
 from app.models import Exercise, WarmupSession, session_exercises
-from app.schemas import SessionCreate, SessionOut, SessionRename, SessionSummary
+from app.schemas import SessionCreate, SessionOut, SessionUpdate, SessionSummary
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -74,16 +74,33 @@ def get_session(
 
 
 @router.patch("/{session_id}", response_model=SessionSummary)
-def rename_session(
+def update_session(
     session_id: int,
-    body: SessionRename,
+    body: SessionUpdate,
     db: Session = Depends(get_db),
     _: str = Depends(require_auth),
 ):
     session = db.get(WarmupSession, session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    session.name = body.name.strip() or session.name
+
+    if body.name is not None:
+        session.name = body.name.strip() or session.name
+
+    if body.exercise_ids is not None:
+        db.execute(session_exercises.delete().where(session_exercises.c.session_id == session_id))
+        exercises = db.query(Exercise).filter(Exercise.id.in_(body.exercise_ids)).all()
+        ex_map = {e.id: e for e in exercises}
+        for pos, eid in enumerate(body.exercise_ids):
+            if eid in ex_map:
+                db.execute(
+                    session_exercises.insert().values(
+                        session_id=session.id,
+                        exercise_id=eid,
+                        position=pos,
+                    )
+                )
+
     db.commit()
     db.refresh(session)
     return SessionSummary(

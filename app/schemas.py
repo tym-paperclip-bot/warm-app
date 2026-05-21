@@ -35,8 +35,9 @@ class SessionCreate(BaseModel):
     name: str = "Session"
 
 
-class SessionRename(BaseModel):
-    name: str
+class SessionUpdate(BaseModel):
+    name: str | None = None
+    exercise_ids: list[int] | None = None
 
 
 class SessionOut(BaseModel):

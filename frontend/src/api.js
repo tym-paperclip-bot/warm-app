@@ -60,10 +60,13 @@ export const api = {
     return normalizeSession(data);
   },
 
-  async renameSession(id, name) {
+  async updateSession(id, { name, exerciseIds } = {}) {
+    const body = {};
+    if (name !== undefined) body.name = name;
+    if (exerciseIds !== undefined) body.exercise_ids = exerciseIds;
     const data = await apiFetch(`/sessions/${id}`, {
       method: 'PATCH',
-      body: JSON.stringify({ name }),
+      body: JSON.stringify(body),
     });
     return normalizeSession(data);
   },

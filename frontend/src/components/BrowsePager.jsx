@@ -5,41 +5,11 @@ import { InfoPanel } from './InfoPanel.jsx';
 import { SessionsView } from './SessionsView.jsx';
 
 // ─── Exercise card ──────────────────────────────────────
-function ExerciseCard({ exercise, idx, savedToCurrent, savedToAny, onSave, onLongPress }) {
-  const longPressTimer = React.useRef(null);
-  const longPressFired = React.useRef(false);
-
-  const handlePointerDown = e => {
-    e.stopPropagation();
-    longPressFired.current = false;
-    longPressTimer.current = setTimeout(() => {
-      longPressFired.current = true;
-      onLongPress(exercise);
-    }, 450);
-  };
-  const handlePointerUp = e => {
-    e.stopPropagation();
-    clearTimeout(longPressTimer.current);
-    if (!longPressFired.current) onSave(exercise);
-  };
-  const handleCancel = () => clearTimeout(longPressTimer.current);
-
+function ExerciseCard({ exercise, idx }) {
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%', padding: '88px 18px 108px', display: 'flex', flexDirection: 'column' }}>
       <div style={{ flex: 1, borderRadius: 22, overflow: 'hidden', border: '1px solid var(--line)', position: 'relative' }}>
         <VideoPlayer exercise={exercise} />
-        <button
-          className={'wu-floating-save' + (savedToCurrent ? ' active' : '')}
-          onPointerDown={handlePointerDown}
-          onPointerUp={handlePointerUp}
-          onPointerLeave={handleCancel}
-          onPointerCancel={handleCancel}
-          data-no-swipe="true"
-          title="Tap to save · long press to pick session"
-        >
-          {savedToCurrent ? <Icon.Check s={22} /> : <Icon.Plus s={22} />}
-          {savedToAny && !savedToCurrent && <span className="wu-rail-dot" />}
-        </button>
       </div>
       <div style={{ paddingTop: 18 }}>
         <div className="wu-eyebrow" style={{ marginBottom: 8 }}>
@@ -51,6 +21,41 @@ function ExerciseCard({ exercise, idx, savedToCurrent, savedToAny, onSave, onLon
           <span className="wu-pill muted">{exercise.equipment || 'No kit'}</span>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Bottom save FAB (Browse) ───────────────────────────
+function BrowseBottomBar({ onSave, onLongPress, savedToCurrent, savedToAny }) {
+  const longPressTimer = React.useRef(null);
+  const longPressFired = React.useRef(false);
+
+  const handlePointerDown = e => {
+    e.stopPropagation();
+    longPressFired.current = false;
+    longPressTimer.current = setTimeout(() => { longPressFired.current = true; onLongPress(); }, 450);
+  };
+  const handlePointerUp = e => {
+    e.stopPropagation();
+    clearTimeout(longPressTimer.current);
+    if (!longPressFired.current) onSave();
+  };
+  const handleCancel = () => clearTimeout(longPressTimer.current);
+
+  return (
+    <div className="wu-bar-single">
+      <button
+        className={'wu-bar-save large' + (savedToCurrent ? ' active' : '')}
+        onPointerDown={handlePointerDown}
+        onPointerUp={handlePointerUp}
+        onPointerLeave={handleCancel}
+        onPointerCancel={handleCancel}
+        data-no-swipe="true"
+        title="Tap to save · long press to pick session"
+      >
+        {savedToCurrent ? <Icon.Check s={24} /> : <Icon.Plus s={24} />}
+        {savedToAny && !savedToCurrent && <span className="wu-rail-dot" />}
+      </button>
     </div>
   );
 }
@@ -71,6 +76,8 @@ function BrowseView({ state, dispatch }) {
     return () => el.removeEventListener('scroll', onScroll);
   }, [state.browseIdx, dispatch]);
 
+  const currentEx = exercises[state.browseIdx] || exercises[0] || null;
+
   if (exercises.length === 0) {
     return (
       <>
@@ -82,12 +89,6 @@ function BrowseView({ state, dispatch }) {
           <div style={{ fontFamily: 'var(--sans)', fontSize: 14, color: 'var(--mute)', lineHeight: 1.5 }}>
             Add exercises in the admin panel at <span style={{ color: 'var(--ink)', fontFamily: 'var(--mono)', fontSize: 12 }}>/admin</span>
           </div>
-        </div>
-        <div className="wu-bar-single">
-          <button className="wu-bar-cta" onClick={() => dispatch({ type: 'openGenerate' })} data-no-swipe="true">
-            <span className="dot" />
-            <span>Generate warm-up</span>
-          </button>
         </div>
       </>
     );
@@ -102,26 +103,16 @@ function BrowseView({ state, dispatch }) {
       <div ref={scrollRef} className="wu-scroll">
         {exercises.map((ex, i) => (
           <div key={ex.id} className="wu-page">
-            <ExerciseCard
-              idx={i}
-              exercise={ex}
-              savedToCurrent={state.buildingSession.includes(ex.id)}
-              savedToAny={state.sessions.some(s => s.exerciseIds.includes(ex.id))}
-              onSave={e => dispatch({ type: 'toggleBuild', id: e.id })}
-              onLongPress={e => dispatch({ type: 'openSavePicker', id: e.id })}
-            />
+            <ExerciseCard idx={i} exercise={ex} />
           </div>
         ))}
       </div>
-      <div className="wu-bar-single">
-        <button className="wu-bar-cta" onClick={() => dispatch({ type: 'openGenerate' })} data-no-swipe="true">
-          <span className="dot" />
-          <span>Generate warm-up</span>
-          {state.buildingSession.length > 0 && (
-            <span className="badge">{state.buildingSession.length} saved</span>
-          )}
-        </button>
-      </div>
+      <BrowseBottomBar
+        savedToCurrent={currentEx ? state.buildingSession.includes(currentEx.id) : false}
+        savedToAny={currentEx ? state.sessions.some(s => s.exerciseIds.includes(currentEx.id)) : false}
+        onSave={() => currentEx && dispatch({ type: 'toggleBuild', id: currentEx.id })}
+        onLongPress={() => currentEx && dispatch({ type: 'openSavePicker', id: currentEx.id })}
+      />
     </>
   );
 }

@@ -14,126 +14,232 @@ const solidBtn = {
   display: 'inline-flex', alignItems: 'center', gap: 6,
 };
 
-// Pencil icon (not in the shared set)
-function PencilIcon({ s = 16, c = 'currentColor' }) {
-  return (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-    </svg>
-  );
-}
+// ─── Swipeable session row ──────────────────────────────
+function SwipeableSessionRow({ session, onStart, onEdit, onDelete }) {
+  const [dx, setDx] = React.useState(0);
+  const [open, setOpen] = React.useState(false);
+  const [confirming, setConfirming] = React.useState(false);
+  const dragRef = React.useRef({ active: false, startX: 0, startY: 0, axis: null, baseDx: 0 });
+  const ACTION_W = 152;
+  const OPEN_THRESHOLD = 50;
+  const DELETE_THRESHOLD = 230;
 
-// Trash icon
-function TrashIcon({ s = 16, c = 'currentColor' }) {
-  return (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" />
-    </svg>
-  );
-}
+  const close = () => { setOpen(false); setDx(0); setConfirming(false); };
 
-// Edit sheet — rename + delete
-function EditSessionSheet({ session, onClose, onRenamed, onDeleted }) {
-  const [name, setName] = React.useState(session.name);
-  const [confirmDelete, setConfirmDelete] = React.useState(false);
-  const [saving, setSaving] = React.useState(false);
-  const inputRef = React.useRef(null);
-
-  React.useEffect(() => {
-    // Focus input when sheet opens
-    setTimeout(() => inputRef.current?.focus(), 60);
-  }, []);
-
-  const handleSave = async () => {
-    if (!name.trim() || name.trim() === session.name) { onClose(); return; }
-    setSaving(true);
-    try {
-      const updated = await api.renameSession(session.id, name.trim());
-      onRenamed(updated);
-    } finally {
-      setSaving(false);
+  const onPointerDown = e => {
+    if (e.target.closest('button, [data-no-drag]')) return;
+    dragRef.current = { active: true, startX: e.clientX, startY: e.clientY, axis: null, baseDx: open ? ACTION_W : 0 };
+  };
+  const onPointerMove = e => {
+    const d = dragRef.current;
+    if (!d.active) return;
+    const ddx = e.clientX - d.startX;
+    const ddy = e.clientY - d.startY;
+    if (!d.axis) {
+      if (Math.abs(ddx) > 8 && Math.abs(ddx) > Math.abs(ddy) * 1.2) { d.axis = 'x'; }
+      else if (Math.abs(ddy) > 8) { d.axis = 'y'; d.active = false; return; }
+    }
+    if (d.axis === 'x') {
+      const raw = d.baseDx + ddx;
+      const clamped = Math.max(0, Math.min(raw, DELETE_THRESHOLD + 60));
+      setDx(clamped);
+      setConfirming(clamped > DELETE_THRESHOLD);
     }
   };
+  const onPointerUp = () => {
+    const d = dragRef.current;
+    if (d.active && d.axis === 'x') {
+      if (dx > DELETE_THRESHOLD) {
+        setDx(DELETE_THRESHOLD + 80);
+        setTimeout(() => onDelete(), 180);
+      } else if (dx > OPEN_THRESHOLD) {
+        setOpen(true); setDx(ACTION_W); setConfirming(false);
+      } else {
+        close();
+      }
+    }
+    dragRef.current = { active: false, startX: 0, startY: 0, axis: null, baseDx: 0 };
+  };
 
-  const handleDelete = async () => {
+  return (
+    <div
+      className="wu-session-swipe"
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+    >
+      <div className={'wu-session-actions' + (confirming ? ' confirming' : '')}>
+        <button className="wu-session-action edit" data-no-swipe="true"
+          onClick={e => { e.stopPropagation(); onEdit(); close(); }}>
+          <Icon.Edit s={18} />
+          <span>Edit</span>
+        </button>
+        <button className="wu-session-action delete" data-no-swipe="true"
+          onClick={e => { e.stopPropagation(); onDelete(); }}>
+          <Icon.Trash s={18} c="#fff" />
+          <span>{confirming ? 'Release' : 'Delete'}</span>
+        </button>
+      </div>
+      <div
+        className="wu-row wu-session-row"
+        style={{ transform: `translateX(${dx}px)`, transition: dragRef.current.active ? 'none' : 'transform 0.22s ease' }}
+        onClick={() => { if (open) { close(); return; } onStart(); }}
+      >
+        <div>
+          <div className="t1">{session.name}</div>
+          <div className="t2">{session.exerciseIds.length} exercises · {session.created_at}</div>
+        </div>
+        <button style={solidBtn} data-no-drag="true"
+          onClick={e => { e.stopPropagation(); onStart(); }}>
+          <Icon.Play s={12} c="#fff" /> Start
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Edit session sheet ─────────────────────────────────
+function EditSessionSheet({ open, state, dispatch }) {
+  const session = state.sessions.find(s => s.id === state.editingSessionId);
+  const [name, setName] = React.useState('');
+  const [exerciseIds, setExerciseIds] = React.useState([]);
+  const [saving, setSaving] = React.useState(false);
+  const [draggingIdx, setDraggingIdx] = React.useState(null);
+  const dragRef = React.useRef({ active: false, idx: -1, startY: 0, itemH: 0 });
+
+  React.useEffect(() => {
+    if (open && session) {
+      setName(session.name);
+      setExerciseIds([...session.exerciseIds]);
+    }
+  }, [open, session?.id]);
+
+  if (!session) {
+    return <div className={'wu-sheet-backdrop' + (open ? ' open' : '')} onClick={() => dispatch({ type: 'closeSheets' })} />;
+  }
+
+  const exercises = exerciseIds.map(id => state.exercises.find(e => e.id === id)).filter(Boolean);
+
+  const removeAt = idx => setExerciseIds(prev => prev.filter((_, i) => i !== idx));
+
+  const onGripDown = (e, idx) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const itemEl = e.currentTarget.closest('.wu-edit-item');
+    const h = (itemEl?.getBoundingClientRect().height ?? 60) + 6; // height + gap
+    dragRef.current = { active: true, idx, startY: e.clientY, itemH: h };
+    setDraggingIdx(idx);
+  };
+
+  const onGripMove = (e) => {
+    const d = dragRef.current;
+    if (!d.active) return;
+    const steps = Math.round((e.clientY - d.startY) / d.itemH);
+    if (steps === 0) return;
+    const newIdx = Math.max(0, Math.min(exercises.length - 1, d.idx + steps));
+    if (newIdx === d.idx) return;
+    setExerciseIds(prev => {
+      const next = [...prev];
+      const [item] = next.splice(d.idx, 1);
+      next.splice(newIdx, 0, item);
+      return next;
+    });
+    d.startY += steps * d.itemH;
+    d.idx = newIdx;
+    setDraggingIdx(newIdx);
+  };
+
+  const onGripUp = () => {
+    dragRef.current.active = false;
+    setDraggingIdx(null);
+  };
+
+  const handleDone = async () => {
     setSaving(true);
     try {
-      await api.deleteSession(session.id);
-      onDeleted(session.id);
+      const nameChanged = name.trim() && name.trim() !== session.name;
+      const idsChanged = JSON.stringify(exerciseIds) !== JSON.stringify(session.exerciseIds);
+      if (nameChanged || idsChanged) {
+        const update = {};
+        if (nameChanged) update.name = name.trim();
+        if (idsChanged) update.exerciseIds = exerciseIds;
+        const updated = await api.updateSession(session.id, update);
+        dispatch({ type: 'sessionUpdated', session: updated });
+      }
     } finally {
       setSaving(false);
+      dispatch({ type: 'closeSheets' });
     }
   };
 
   return (
     <>
-      <div className="wu-sheet-backdrop open" onClick={onClose} />
-      <div className="wu-sheet open">
+      <div className={'wu-sheet-backdrop' + (open ? ' open' : '')} onClick={handleDone} />
+      <div className={'wu-sheet tall' + (open ? ' open' : '')}>
         <div className="wu-sheet-grab" />
         <div className="wu-eyebrow" style={{ marginBottom: 4 }}>Edit session</div>
-        <div className="wu-display" style={{ fontSize: 26, marginBottom: 20 }}>{session.name}</div>
 
-        <div style={{ marginBottom: 20 }}>
-          <div className="wu-eyebrow" style={{ marginBottom: 8 }}>Name</div>
-          <input
-            ref={inputRef}
-            value={name}
-            onChange={e => setName(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleSave()}
-            style={{
-              width: '100%', height: 52, padding: '0 16px',
-              border: '1.5px solid var(--ink)', borderRadius: 14,
-              fontFamily: 'var(--sans)', fontSize: 16, fontWeight: 500,
-              background: 'var(--paper)', color: 'var(--ink)', outline: 'none',
-            }}
-          />
+        <input
+          type="text"
+          value={name}
+          onChange={e => setName(e.target.value)}
+          className="wu-edit-name"
+          placeholder="Session name"
+        />
+
+        <div className="wu-mono" style={{ fontSize: 10, color: 'var(--mute)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 12 }}>
+          {exercises.length} exercises · drag to reorder
         </div>
 
-        <button onClick={handleSave} disabled={saving || !name.trim()} style={{
-          width: '100%', height: 52, border: 'none', borderRadius: 14,
-          background: 'var(--ink)', color: 'var(--paper)', cursor: saving ? 'default' : 'pointer',
-          opacity: (!name.trim() || saving) ? 0.5 : 1,
-          fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 600,
-          letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 10,
-        }}>
-          {saving ? 'Saving…' : 'Save name'}
-        </button>
+        <div className="wu-edit-list">
+          {exercises.map((ex, i) => (
+            <div key={ex.id} className={'wu-edit-item' + (draggingIdx === i ? ' dragging' : '')}>
+              <div
+                className="wu-edit-item-grip"
+                onPointerDown={e => onGripDown(e, i)}
+                onPointerMove={onGripMove}
+                onPointerUp={onGripUp}
+                onPointerCancel={onGripUp}
+              >
+                <Icon.Grip s={14} c="var(--mute)" />
+                <span className="wu-mono" style={{ fontSize: 10, color: 'var(--mute)', letterSpacing: '0.1em' }}>
+                  {String(i + 1).padStart(2, '0')}
+                </span>
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontFamily: 'var(--display)', fontSize: 16, lineHeight: 1.15, color: 'var(--ink)' }}>{ex.name}</div>
+                <div className="wu-mono" style={{ fontSize: 9, color: 'var(--mute)', letterSpacing: '0.12em', textTransform: 'uppercase', marginTop: 3 }}>
+                  {ex.body_part} · {ex.equipment || 'No kit'}
+                </div>
+              </div>
+              <button className="wu-edit-icon danger" onClick={() => removeAt(i)} title="Remove">
+                <Icon.Trash s={14} />
+              </button>
+            </div>
+          ))}
+          {exercises.length === 0 && (
+            <div style={{ padding: '24px 0', textAlign: 'center', color: 'var(--mute)', fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase' }}>
+              No exercises left
+            </div>
+          )}
+        </div>
 
-        {!confirmDelete ? (
-          <button onClick={() => setConfirmDelete(true)} style={{
-            width: '100%', height: 52, border: '1.5px solid var(--line-2)', borderRadius: 14,
-            background: 'var(--paper)', cursor: 'pointer',
-            fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 600,
-            letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--mute)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-          }}>
-            <TrashIcon s={14} c="var(--mute)" /> Delete session
-          </button>
-        ) : (
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={() => setConfirmDelete(false)} style={{ ...ghostBtn, flex: 1, height: 52, borderRadius: 14 }}>
-              Cancel
-            </button>
-            <button onClick={handleDelete} disabled={saving} style={{
-              flex: 1, height: 52, border: 'none', borderRadius: 14,
-              background: '#CC2200', color: '#fff', cursor: saving ? 'default' : 'pointer',
-              fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 600,
-              letterSpacing: '0.14em', textTransform: 'uppercase',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-            }}>
-              <TrashIcon s={14} c="#fff" /> Delete
-            </button>
-          </div>
-        )}
+        <button onClick={handleDone} disabled={saving} style={{
+          width: '100%', height: 54, marginTop: 18, border: 'none', borderRadius: 16,
+          background: 'var(--ink)', color: 'var(--paper)', cursor: saving ? 'default' : 'pointer',
+          fontFamily: 'var(--display)', fontSize: 15, letterSpacing: '0.04em', textTransform: 'uppercase',
+          opacity: saving ? 0.6 : 1,
+        }}>
+          {saving ? 'Saving…' : 'Done'}
+        </button>
       </div>
     </>
   );
 }
 
 export function SessionsView({ state, dispatch, inPager }) {
-  const [editingSession, setEditingSession] = React.useState(null);
-
   const handleSave = async e => {
     e.stopPropagation();
     if (!state.buildingSession.length) return;
@@ -146,6 +252,15 @@ export function SessionsView({ state, dispatch, inPager }) {
     }
   };
 
+  const handleDelete = async id => {
+    try {
+      await api.deleteSession(id);
+      dispatch({ type: 'sessionDeleted', id });
+    } catch {
+      // keep in state if delete fails
+    }
+  };
+
   return (
     <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}>
       <div style={{ padding: '64px 22px 22px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -154,6 +269,9 @@ export function SessionsView({ state, dispatch, inPager }) {
           <div className="wu-display" style={{ fontSize: 44 }}>Sessions</div>
           <div className="wu-mono" style={{ fontSize: 11, color: 'var(--mute)', textTransform: 'uppercase', letterSpacing: '0.12em', marginTop: 10 }}>
             {state.sessions.length} saved{state.buildingSession.length ? ` · ${state.buildingSession.length} in progress` : ''}
+          </div>
+          <div className="wu-mono" style={{ fontSize: 9, color: 'var(--mute-2)', textTransform: 'uppercase', letterSpacing: '0.14em', marginTop: 6 }}>
+            Swipe row right for edit · delete
           </div>
         </div>
         <button onClick={() => dispatch({ type: 'goto', view: 'settings' })} data-no-swipe="true" style={{
@@ -164,14 +282,12 @@ export function SessionsView({ state, dispatch, inPager }) {
         </button>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto' }} className="wu-noscroll">
+      <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 110 }} className="wu-noscroll">
         {state.buildingSession.length > 0 && (
-          <div className="wu-row" onClick={() => dispatch({ type: 'startBuilding' })} style={{ background: '#FFF6F1' }}>
+          <div className="wu-row" onClick={() => dispatch({ type: 'startBuilding' })} style={{ background: '#FFF6F1', borderBottom: '1px solid var(--line)' }}>
             <div>
               <div className="t1">Unsaved session</div>
-              <div className="t2">
-                <span style={{ color: 'var(--accent)' }}>●</span> {state.buildingSession.length} exercises · ready
-              </div>
+              <div className="t2"><span style={{ color: 'var(--accent)' }}>●</span> {state.buildingSession.length} exercises · ready</div>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={handleSave} style={ghostBtn} data-no-swipe="true">Save</button>
@@ -183,25 +299,13 @@ export function SessionsView({ state, dispatch, inPager }) {
         )}
 
         {state.sessions.map(s => (
-          <div key={s.id} className="wu-row" onClick={() => dispatch({ type: 'startSession', sessionId: s.id })}>
-            <div style={{ minWidth: 0 }}>
-              <div className="t1">{s.name}</div>
-              <div className="t2">{s.exerciseIds.length} exercises · {s.created_at}</div>
-            </div>
-            <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-              <button
-                style={{ ...ghostBtn, padding: '0 12px' }}
-                data-no-swipe="true"
-                onClick={e => { e.stopPropagation(); setEditingSession(s); }}
-                title="Edit"
-              >
-                <PencilIcon s={14} />
-              </button>
-              <button style={solidBtn} data-no-swipe="true" onClick={e => { e.stopPropagation(); dispatch({ type: 'startSession', sessionId: s.id }); }}>
-                <Icon.Play s={12} c="#fff" /> Start
-              </button>
-            </div>
-          </div>
+          <SwipeableSessionRow
+            key={s.id}
+            session={s}
+            onStart={() => dispatch({ type: 'startSession', sessionId: s.id })}
+            onEdit={() => dispatch({ type: 'openEditSession', id: s.id })}
+            onDelete={() => handleDelete(s.id)}
+          />
         ))}
 
         {state.sessions.length === 0 && state.buildingSession.length === 0 && (
@@ -228,14 +332,20 @@ export function SessionsView({ state, dispatch, inPager }) {
         </div>
       )}
 
-      {editingSession && (
-        <EditSessionSheet
-          session={editingSession}
-          onClose={() => setEditingSession(null)}
-          onRenamed={updated => { dispatch({ type: 'sessionRenamed', session: updated }); setEditingSession(null); }}
-          onDeleted={id => { dispatch({ type: 'sessionDeleted', id }); setEditingSession(null); }}
-        />
-      )}
+      {/* Generate warm-up FAB */}
+      <div className="wu-bar-single wide">
+        <button className="wu-bar-cta wide" onClick={() => dispatch({ type: 'openGenerate' })} data-no-swipe="true">
+          <span className="dot" />
+          <span>Generate warm-up</span>
+          {state.buildingSession.length > 0 && <span className="badge">{state.buildingSession.length}</span>}
+        </button>
+      </div>
+
+      <EditSessionSheet
+        open={state.sheet === 'editSession'}
+        state={state}
+        dispatch={dispatch}
+      />
     </div>
   );
 }

@@ -60,7 +60,7 @@ export function appReducer(state, action) {
         buildingSession: [],
       };
     }
-    case 'sessionRenamed': {
+    case 'sessionUpdated': {
       return {
         ...state,
         sessions: state.sessions.map(s => s.id === action.session.id ? action.session : s),
@@ -70,8 +70,12 @@ export function appReducer(state, action) {
       return {
         ...state,
         sessions: state.sessions.filter(s => s.id !== action.id),
+        editingSessionId: state.editingSessionId === action.id ? null : state.editingSessionId,
+        sheet: state.editingSessionId === action.id ? null : state.sheet,
       };
     }
+    case 'openEditSession':
+      return { ...state, sheet: 'editSession', editingSessionId: action.id };
     case 'startBuilding':
       if (!state.buildingSession.length) return state;
       return { ...state, view: 'player', playerIds: state.buildingSession, playerIdx: 0, sheet: null };
@@ -102,6 +106,7 @@ export function makeInitialState() {
     playerIds: [],
     playerIdx: 0,
     pickerExerciseId: null,
+    editingSessionId: null,
     buildingSession: [],
     exercises: [],
     sessions: [],
