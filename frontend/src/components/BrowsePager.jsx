@@ -67,17 +67,19 @@ function BrowseView({ state, dispatch, scrollRef }) {
   React.useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const onScroll = () => {
-      const idx = Math.round(el.scrollTop / el.clientHeight);
-      dispatch({ type: 'browseIdx', idx });
-    };
-    el.addEventListener('scroll', onScroll, { passive: true });
-    el.addEventListener('scrollend', onScroll, { passive: true });
-    return () => {
-      el.removeEventListener('scroll', onScroll);
-      el.removeEventListener('scrollend', onScroll);
-    };
-  }, [dispatch, scrollRef]);
+    const pages = el.querySelectorAll('.wu-page');
+    if (!pages.length) return;
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting && entry.intersectionRatio >= 0.5) {
+          const idx = Array.from(pages).indexOf(entry.target);
+          if (idx >= 0) dispatch({ type: 'browseIdx', idx });
+        }
+      });
+    }, { root: el, threshold: 0.5 });
+    pages.forEach(p => observer.observe(p));
+    return () => observer.disconnect();
+  }, [dispatch, scrollRef, exercises.length]);
 
   const currentEx = exercises[state.browseIdx] || exercises[0] || null;
 
